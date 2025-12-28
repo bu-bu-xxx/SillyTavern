@@ -92,6 +92,7 @@ const sources = {
     google: 'google',
     zai: 'zai',
     openrouter: 'openrouter',
+    dashscope: 'dashscope',
 };
 const comfyTypes = {
     standard: 'standard',
@@ -1599,6 +1600,9 @@ async function loadSamplers() {
         case sources.openrouter:
             samplers = ['N/A'];
             break;
+        case sources.dashscope:
+            samplers = ['N/A'];
+            break;
     }
 
     for (const sampler of samplers) {
@@ -1812,6 +1816,9 @@ async function loadModels() {
             break;
         case sources.openrouter:
             models = await loadOpenRouterModels();
+            break;
+        case sources.dashscope:
+            models = await loadDashScopeModels();
             break;
     }
 
@@ -2310,6 +2317,19 @@ async function loadOpenRouterModels() {
     return [];
 }
 
+async function loadDashScopeModels() {
+    const result = await fetch('/api/sd/dashscope/models', {
+        method: 'POST',
+        headers: getRequestHeaders({ omitContentType: true }),
+    });
+
+    if (result.ok) {
+        return await result.json();
+    }
+
+    return [];
+}
+
 function loadNovelSchedulers() {
     return ['karras', 'native', 'exponential', 'polyexponential'];
 }
@@ -2411,6 +2431,9 @@ async function loadSchedulers() {
             schedulers = ['N/A'];
             break;
         case sources.openrouter:
+            schedulers = ['N/A'];
+            break;
+        case sources.dashscope:
             schedulers = ['N/A'];
             break;
     }
@@ -2523,6 +2546,9 @@ async function loadVaes() {
             vaes = ['N/A'];
             break;
         case sources.openrouter:
+            vaes = ['N/A'];
+            break;
+        case sources.dashscope:
             vaes = ['N/A'];
             break;
     }
@@ -3133,6 +3159,9 @@ async function sendGenerationRequest(generationType, prompt, additionalNegativeP
                 break;
             case sources.openrouter:
                 result = await generateOpenRouterImage(prefixedPrompt, signal);
+                break;
+            case sources.dashscope:
+                result = await generateDashScopeImage(prefixedPrompt, negativePrompt, signal);
                 break;
         }
 
@@ -4303,6 +4332,39 @@ async function generateOpenRouterImage(prompt, signal) {
     throw new Error(text);
 }
 
+/**
+ * Generates an image using the DashScope API.
+ * @param {string} prompt - The main instruction used to guide the image generation.
+ * @param {string} negativePrompt - The instruction used to restrict the image generation.
+ * @param {AbortSignal} signal - An AbortSignal object that can be used to cancel the request.
+ * @returns {Promise<{format: string, data: string}>} - A promise that resolves when the image generation and processing are complete.
+ */
+async function generateDashScopeImage(prompt, negativePrompt, signal) {
+    const result = await fetch('/api/sd/dashscope/generate', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        signal: signal,
+        body: JSON.stringify({
+            prompt: prompt,
+            negative_prompt: negativePrompt,
+            model: extension_settings.sd.model,
+            width: clamp(extension_settings.sd.width, 256, 1440),
+            height: clamp(extension_settings.sd.height, 256, 1440),
+            steps: extension_settings.sd.steps,
+            scale: extension_settings.sd.scale,
+            seed: extension_settings.sd.seed >= 0 ? extension_settings.sd.seed : undefined,
+        }),
+    });
+
+    if (result.ok) {
+        const data = await result.json();
+        return { format: 'png', data: data.image };
+    }
+
+    const text = await result.text();
+    throw new Error(text);
+}
+
 async function onComfyOpenWorkflowEditorClick() {
     let workflow = await (await fetch('/api/sd/comfy/workflow', {
         method: 'POST',
@@ -4621,6 +4683,8 @@ function isValidState() {
             return secret_state[SECRET_KEYS.ZAI];
         case sources.openrouter:
             return secret_state[SECRET_KEYS.OPENROUTER];
+        case sources.dashscope:
+            return secret_state[SECRET_KEYS.DASHSCOPE];
         default:
             return false;
     }

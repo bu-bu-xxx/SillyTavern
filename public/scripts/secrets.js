@@ -73,6 +73,7 @@ export const SECRET_KEYS = {
     ZAI: 'api_key_zai',
     SILICONFLOW: 'api_key_siliconflow',
     ELEVENLABS: 'api_key_elevenlabs',
+    DASHSCOPE: 'api_key_dashscope',
 };
 
 const FRIENDLY_NAMES = {
@@ -134,6 +135,7 @@ const FRIENDLY_NAMES = {
     [SECRET_KEYS.ZAI]: 'Z.AI',
     [SECRET_KEYS.SILICONFLOW]: 'SiliconFlow',
     [SECRET_KEYS.ELEVENLABS]: 'ElevenLabs TTS',
+    [SECRET_KEYS.DASHSCOPE]: 'DashScope',
 };
 
 const INPUT_MAP = {
