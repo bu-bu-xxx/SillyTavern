@@ -1805,6 +1805,147 @@ zai.post('/generate', async (request, response) => {
     }
 });
 
+const dashscope = express.Router();
+
+dashscope.post('/models', async (request, response) => {
+    try {
+        // DashScope image generation models
+        const models = [
+            { value: 'wanx-v1', text: 'Wanx v1' },
+            { value: 'wanx2.1-t2i-turbo', text: 'Wanx 2.1 Turbo' },
+            { value: 'wanx2.1-t2i-plus', text: 'Wanx 2.1 Plus' },
+        ];
+        return response.send(models);
+    } catch (error) {
+        console.error(error);
+        return response.sendStatus(500);
+    }
+});
+
+dashscope.post('/generate', async (request, response) => {
+    try {
+        const key = readSecret(request.user.directories, SECRET_KEYS.DASHSCOPE);
+
+        if (!key) {
+            console.warn('DashScope key not found.');
+            return response.sendStatus(400);
+        }
+
+        const { prompt, negative_prompt, model, width, height, steps, scale, seed } = request.body;
+
+        const requestBody = {
+            model: model || 'wanx-v1',
+            input: {
+                prompt: prompt,
+                negative_prompt: negative_prompt || '',
+            },
+            parameters: {
+                size: `${width || 1024}*${height || 1024}`,
+                n: 1,
+            },
+        };
+
+        // Add optional parameters if provided
+        if (steps) {
+            requestBody.parameters.steps = steps;
+        }
+        if (scale) {
+            requestBody.parameters.scale = scale;
+        }
+        if (seed !== undefined && seed >= 0) {
+            requestBody.parameters.seed = seed;
+        }
+
+        console.debug('DashScope request:', requestBody);
+
+        // Submit the async task
+        const submitResult = await fetch('https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${key}`,
+                'Content-Type': 'application/json',
+                'X-DashScope-Async': 'enable',
+            },
+            body: JSON.stringify(requestBody),
+        });
+
+        if (!submitResult.ok) {
+            const text = await submitResult.text();
+            console.warn('DashScope returned an error.', text);
+            return response.status(500).send(text);
+        }
+
+        /** @type {any} */
+        const submitData = await submitResult.json();
+        const taskId = submitData?.output?.task_id;
+
+        if (!taskId) {
+            console.warn('DashScope did not return a task ID.');
+            return response.sendStatus(500);
+        }
+
+        // Poll for the result
+        const MAX_ATTEMPTS = 60;
+        const POLL_INTERVAL = 2000;
+
+        for (let i = 0; i < MAX_ATTEMPTS; i++) {
+            await delay(POLL_INTERVAL);
+
+            const statusResult = await fetch(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${key}`,
+                },
+            });
+
+            if (!statusResult.ok) {
+                const text = await statusResult.text();
+                console.warn('DashScope task status error.', text);
+                return response.status(500).send(text);
+            }
+
+            /** @type {any} */
+            const statusData = await statusResult.json();
+            const taskStatus = statusData?.output?.task_status;
+
+            if (taskStatus === 'PENDING' || taskStatus === 'RUNNING') {
+                continue;
+            }
+
+            if (taskStatus === 'SUCCEEDED') {
+                const imageUrl = statusData?.output?.results?.[0]?.url;
+                if (!imageUrl) {
+                    console.warn('DashScope did not return an image URL.');
+                    return response.sendStatus(500);
+                }
+
+                // Fetch the image and convert to base64
+                const imageResponse = await fetch(imageUrl);
+                if (!imageResponse.ok) {
+                    console.warn('Failed to fetch DashScope image.');
+                    return response.sendStatus(500);
+                }
+
+                const buffer = await imageResponse.arrayBuffer();
+                const image = Buffer.from(buffer).toString('base64');
+                return response.send({ image });
+            }
+
+            if (taskStatus === 'FAILED') {
+                const errorMessage = statusData?.output?.message || 'Unknown error';
+                console.warn('DashScope task failed:', errorMessage);
+                return response.status(500).send(errorMessage);
+            }
+        }
+
+        console.warn('DashScope task timed out.');
+        return response.status(500).send('Image generation timed out');
+    } catch (error) {
+        console.error('DashScope error:', error);
+        return response.sendStatus(500);
+    }
+});
+
 router.use('/comfy', comfy);
 router.use('/comfyrunpod', comfyRunPod);
 router.use('/together', together);
@@ -1820,3 +1961,4 @@ router.use('/falai', falai);
 router.use('/xai', xai);
 router.use('/aimlapi', aimlapi);
 router.use('/zai', zai);
+router.use('/dashscope', dashscope);
